@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>药物安全性信号初筛工具（Agent版）— FAERS + AI解读</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #f7f6f1; --ink: #1c211e; --ink-soft: #565f59; --line: #d8d6cc;
+    --panel: #ffffff; --primary: #1f4d42; --primary-soft: #e6ede9;
+    --signal: #b3591c; --signal-soft: #fbeee0;
+    --ai: #4a3b7a; --ai-soft: #ece8f5;
+    --mono: 'IBM Plex Mono', 'SF Mono', Consolas, monospace;
+    --serif: 'Source Serif 4', Georgia, 'Songti SC', serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #141815; --ink: #eae7de; --ink-soft: #9aa39c; --line: #333a34;
+      --panel: #1b201c; --primary: #7fc4ae; --primary-soft: #1f2b26;
+      --signal: #e8935a; --signal-soft: #2e2117;
+      --ai: #b3a3e8; --ai-soft: #241f36;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); line-height: 1.7; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 56px 24px 96px; }
+
+  .masthead { border-bottom: 1px solid var(--line); padding-bottom: 28px; margin-bottom: 32px; }
+  .masthead .kicker { font-family: var(--mono); font-size: 12.5px; color: var(--primary); margin-bottom: 10px; }
+  .masthead h1 { font-family: var(--serif); font-weight: 600; font-size: 27px; line-height: 1.3; margin: 0 0 8px; }
+  .masthead .sub { font-size: 14px; color: var(--ink-soft); }
+
+  form {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 2px;
+    padding: 24px; margin-bottom: 32px; display: grid; gap: 16px;
+  }
+  .field label { display: block; font-size: 13px; color: var(--ink-soft); margin-bottom: 6px; }
+  .field input {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 2px;
+    background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: 14px;
+  }
+  .field input:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  button {
+    background: var(--primary); color: var(--paper); border: none; border-radius: 2px;
+    padding: 13px 20px; font-size: 15px; font-weight: 600; cursor: pointer; font-family: var(--sans);
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  #status { font-size: 13.5px; color: var(--ink-soft); font-family: var(--mono); margin-bottom: 24px; white-space: pre-line; }
+  #error { color: var(--signal); font-size: 14px; margin-bottom: 24px; display: none; }
+
+  #results { display: none; }
+  section { margin-bottom: 40px; }
+  h2 { font-family: var(--serif); font-size: 19px; font-weight: 600; margin: 0 0 14px; }
+  p { font-size: 14.5px; }
+  .sub { color: var(--ink-soft); font-size: 13.5px; }
+
+  .hero { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--signal); padding: 26px 24px; margin-bottom: 36px; }
+  .hero.none { border-left-color: var(--primary); }
+  .hero .label { font-size: 13px; color: var(--ink-soft); margin-bottom: 12px; }
+  .hero .prr-number { font-family: var(--serif); font-size: 46px; font-weight: 700; color: var(--signal); line-height: 1; }
+  .hero.none .prr-number { color: var(--primary); font-size: 22px; }
+  .hero .stat-row { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margin-bottom: 14px; }
+  .hero .prr-what { font-size: 16px; }
+
+  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 22px; background: var(--panel); border: 1px solid var(--line); padding: 18px 20px; font-size: 13.5px; }
+  .filters div span:first-child { display: block; color: var(--ink-soft); font-size: 12px; }
+  .filters div span:last-child { font-family: var(--mono); }
+
+  .table-scroll { overflow-x: auto; border: 1px solid var(--line); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 560px; }
+  thead th { text-align: left; font-weight: 500; color: var(--ink-soft); font-size: 11.5px; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--panel); white-space: nowrap; }
+  tbody td { padding: 10px 12px; border-bottom: 1px solid var(--line); font-family: var(--mono); white-space: nowrap; }
+  tbody td:first-child { font-family: var(--sans); white-space: normal; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr.signal { background: var(--signal-soft); }
+  .flag-yes { color: var(--signal); font-weight: 600; }
+  .flag-no { color: var(--ink-soft); }
+
+  .excluded-note { font-size: 13px; color: var(--ink-soft); background: var(--panel); border: 1px solid var(--line); padding: 12px 16px; margin-top: 14px; }
+
+  /* AI解读面板 —— 用一个明显不同的配色（紫色系），跟统计结果区分开， */
+  /* 让人一眼看出"这段是AI说的话，不是原始数据" */
+  .ai-panel {
+    background: var(--ai-soft); border: 1px solid var(--ai); border-left: 3px solid var(--ai);
+    padding: 22px 24px;
+  }
+  .ai-panel .ai-label {
+    font-family: var(--mono); font-size: 12px; color: var(--ai); margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .ai-panel .ai-text { font-size: 14.5px; line-height: 1.8; white-space: pre-wrap; }
+  .ai-panel .ai-loading { color: var(--ink-soft); font-size: 13.5px; font-family: var(--mono); }
+  .ai-panel .ai-error { color: var(--signal); font-size: 13.5px; }
+
+  footer { border-top: 1px solid var(--line); padding-top: 20px; font-size: 12px; color: var(--ink-soft); }
+
+  @media (max-width: 520px) {
+    .field-row { grid-template-columns: 1fr; }
+    .filters { grid-template-columns: 1fr; }
+    .hero .prr-number { font-size: 36px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div class="kicker">PV SIGNAL AGENT · FAERS + DeepSeek</div>
+    <h1>药物安全性信号初筛工具（Agent版）</h1>
+    <div class="sub">数据来源：FDA openFDA FAERS API · PRR 信号检测方法 · AI解读由 DeepSeek 生成</div>
+  </div>
+
+  <form id="searchForm">
+    <div class="field">
+      <label>药品英文通用名（必填，例如 captopril）</label>
+      <input type="text" id="drugName" placeholder="captopril" required>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>起始年份（可选）</label>
+        <input type="number" id="startYear" placeholder="2025" min="1990" max="2026">
+      </div>
+      <div class="field">
+        <label>最小年龄（可选）</label>
+        <input type="number" id="minAge" placeholder="60" min="0" max="120">
+      </div>
+      <div class="field">
+        <label>合并用药 - 适应症关键词（可选，英文）</label>
+        <input type="text" id="comedKeyword" placeholder="diabetes">
+      </div>
+      <div class="field">
+        <label>合并用药 - 具体药品名（可选，英文）</label>
+        <input type="text" id="comedDrugName" placeholder="aspirin">
+      </div>
+    </div>
+    <button type="submit" id="submitBtn">开始分析</button>
+  </form>
+
+  <div id="status"></div>
+  <div id="error"></div>
+
+  <div id="results">
+    <div class="hero" id="heroBox">
+      <div class="label" id="heroLabel"></div>
+      <div class="stat-row" id="heroStat"></div>
+      <div class="sub" id="heroSupport"></div>
+    </div>
+
+    <section>
+      <h2>本次分析条件</h2>
+      <div class="filters" id="filtersBox"></div>
+    </section>
+
+    <section>
+      <h2>PRR 信号检测结果</h2>
+      <p class="sub">判定标准（英国 MHRA "Rule of 3"）：病例数 a ≥ 3 且 PRR ≥ 2 且 卡方值 ≥ 4，三项同时满足方标记为潜在信号。</p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>不良反应</th><th>a</th><th>PRR</th><th>95% CI</th><th>卡方值</th><th>潜在信号</th></tr>
+          </thead>
+          <tbody id="prrTableBody"></tbody>
+        </table>
+      </div>
+      <div class="excluded-note" id="excludedNote" style="display:none;"></div>
+    </section>
+
+    <section>
+      <h2>AI 解读</h2>
+      <div class="ai-panel">
+        <div class="ai-label">🤖 由 DeepSeek 生成，仅作辅助参考，不能替代专业判断</div>
+        <div id="aiContent"><div class="ai-loading">等待统计结果...</div></div>
+      </div>
+    </section>
+
+    <footer>
+      本报告基于 FAERS 自发呈报数据的统计分析，不代表因果关系确认。"潜在信号"需结合临床判断、文献回顾与作用机制合理性进一步评估，不能作为最终结论。AI解读部分为大模型自动生成，可能存在错误或过度解读，仅供参考。
+    </footer>
+  </div>
+
+</div>
+
+<script>
+const FAERS_API_URL = "https://api.fda.gov/drug/event.json";
+// 免费申请的openFDA API Key，公开无风险
+const API_KEY = "V61LL8lBQtedJcUjlcei7FqI0EU4ZEcnWzp3dYo7";
+
+// 你自己部署的Cloudflare Worker，负责安全代持DeepSeek Key
+const AI_PROXY_URL = "https://faers-ai-proxy.elfpoppanda.workers.dev/";
+
+function buildQuery({ drugName, reaction, startDate, minAge, comedKeyword, comedDrugName }) {
+  const conditions = [];
+  if (drugName) conditions.push(`patient.drug.medicinalproduct:"${drugName}"`);
+  if (reaction) conditions.push(`patient.reaction.reactionmeddrapt:"${reaction}"`);
+  if (startDate) conditions.push(`receivedate:[${startDate} TO 99991231]`);
+  if (minAge) conditions.push(`patient.patientonsetage:[${minAge} TO 999]`);
+  // 按"适应症"筛选合并用药（比如 diabetes），查的是其他药物的开药原因
+  if (comedKeyword) conditions.push(`patient.drug.drugindication:"${comedKeyword}"`);
+  // 按"具体药品名"筛选合并用药（比如 aspirin），查的是报告里是否同时列有这个药，
+  // 和上面的适应症筛选是两套独立逻辑，可以同时使用、也可以只用一个
+  if (comedDrugName) conditions.push(`patient.drug.medicinalproduct:"${comedDrugName}"`);
+  return conditions.length ? conditions.join(" AND ") : null;
+}
+
+async function getReportCount(query) {
+  const params = new URLSearchParams({ limit: "1", api_key: API_KEY });
+  if (query) params.set("search", query);
+  const res = await fetch(`${FAERS_API_URL}?${params.toString()}`);
+  if (!res.ok) return 0;
+  const data = await res.json();
+  return data?.meta?.results?.total || 0;
+}
+
+async function fetchReports(query, limit = 1000) {
+  const params = new URLSearchParams({ search: query, limit: String(limit), api_key: API_KEY });
+  const res = await fetch(`${FAERS_API_URL}?${params.toString()}`);
+  if (!res.ok) {
+    if (res.status === 404) return [];
+    throw new Error(`请求失败，状态码：${res.status}`);
+  }
+  const data = await res.json();
+  return data.results || [];
+}
+
+function analyzeReports(reports) {
+  const reactionCounter = {};
+  let serious = 0, notSerious = 0;
+  for (const report of reports) {
+    const reactions = report?.patient?.reaction || [];
+    for (const r of reactions) {
+      const term = r.reactionmeddrapt;
+      if (term) reactionCounter[term] = (reactionCounter[term] || 0) + 1;
+    }
+    if (report.serious === "1") serious++;
+    else if (report.serious === "2") notSerious++;
+  }
+  const top10 = Object.entries(reactionCounter).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  return { top10, serious, notSerious, total: reports.length };
+}
+
+function isInvestigationTerm(term) {
+  const t = term.toLowerCase();
+  const patterns = ["increased", "decreased", "abnormal", "level", "test positive", "test negative", "test result"];
+  return patterns.some(p => t.includes(p));
+}
+
+function calculatePRR(a, nDrug, nReactionTotal, nTotal) {
+  const b = nDrug - a;
+  const c = nReactionTotal - a;
+  const d = nTotal - nDrug - c;
+  if ((a + b) === 0 || c <= 0 || (c + d) <= 0 || d < 0) return null;
+
+  const prr = (a / (a + b)) / (c / (c + d));
+  const n = a + b + c + d;
+  const numerator = Math.pow(Math.abs(a * d - b * c) - n / 2, 2) * n;
+  const denominator = (a + b) * (c + d) * (a + c) * (b + d);
+  const chiSquare = denominator !== 0 ? numerator / denominator : 0;
+
+  let ciLower = null, ciUpper = null;
+  if (a > 0 && c > 0) {
+    const seLogPrr = Math.sqrt((1 / a) - (1 / nDrug) + (1 / c) - (1 / nReactionTotal));
+    const logPrr = Math.log(prr);
+    ciLower = Math.exp(logPrr - 1.96 * seLogPrr);
+    ciUpper = Math.exp(logPrr + 1.96 * seLogPrr);
+  }
+
+  return {
+    a, b, c, d,
+    prr: Math.round(prr * 100) / 100,
+    chiSquare: Math.round(chiSquare * 100) / 100,
+    ciLower: ciLower !== null ? Math.round(ciLower * 100) / 100 : null,
+    ciUpper: ciUpper !== null ? Math.round(ciUpper * 100) / 100 : null,
+    isSignal: a >= 3 && prr >= 2 && chiSquare >= 4,
+  };
+}
+
+// 把PRR结果整理成清晰的文字，作为喂给AI的素材
+function buildAIPrompt({ drugName, startYear, minAge, comedKeyword, comedDrugName, prrResults, excludedTerms }) {
+  const lines = [];
+  lines.push(`药品：${drugName}`);
+  lines.push(`筛选条件：起始日期${startYear || "不限"}，最小年龄${minAge || "不限"}，合并用药适应症${comedKeyword || "不限"}，合并用药药品名${comedDrugName || "不限"}`);
+  if (excludedTerms.length) {
+    lines.push(`已排除的检验类术语（避免假阳性）：${excludedTerms.join(", ")}`);
+  }
+  lines.push("\nPRR信号检测结果（按PRR从高到低排序）：");
+  for (const r of prrResults) {
+    const ciText = r.ciLower !== null ? `${r.ciLower}-${r.ciUpper}` : "无法计算";
+    const flag = r.isSignal ? "潜在信号" : "未达标准";
+    lines.push(`- ${r.term}：病例数a=${r.a}，PRR=${r.prr}，95%CI=${ciText}，卡方值=${r.chiSquare}，判定=${flag}`);
+  }
+  const signalCount = prrResults.filter(r => r.isSignal).length;
+  const unstableCount = prrResults.filter(r => r.ciLower !== null && r.ciLower > 0 && (r.ciUpper / r.ciLower) > 50).length;
+  lines.push(`\n共识别出${signalCount}个满足统计学判定标准的潜在信号，其中${unstableCount}个信号的置信区间过宽（提示可能是小样本波动）。`);
+  return lines.join("\n");
+}
+
+function containsChinese(text) {
+  return /[\u4e00-\u9fa5]/.test(text);
+}
+
+// FAERS数据库里的字段（适应症、药品名）全部是英文（MedDRA术语/英文通用名），
+// 不存在任何中文。如果用户输入了中文，先用AI把它翻译成标准英文术语，
+// 再拿翻译结果去查询，而不是直接拿中文去查（那样注定查不到任何结果）。
+async function translateToEnglishTerm(text, kind) {
+  const systemPrompt = kind === "drug"
+    ? "你是医学术语翻译助手。用户会给你一个中文药品名，请只返回它对应的英文通用名（generic name），" +
+      "不要任何解释、标点或多余文字，只输出英文名本身。"
+    : "你是医学术语翻译助手。用户会给你一个中文疾病/适应症名称，请只返回它对应的标准英文医学术语" +
+      "（优先使用FAERS/MedDRA里常见的表达方式），不要任何解释、标点或多余文字，只输出英文术语本身。";
+
+  const res = await fetch(AI_PROXY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ systemPrompt, userPrompt: text }),
+  });
+
+  if (!res.ok) throw new Error(`翻译请求失败，状态码：${res.status}`);
+  const data = await res.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) throw new Error("翻译返回格式异常");
+  // 去掉AI偶尔会加的引号/句号等多余符号
+  return content.trim().replace(/^["'“”]|["'“”。.]$/g, "");
+}
+
+async function callAIAnalysis(userPrompt) {
+  const systemPrompt =
+    "你是一名经验丰富的药物警戒（PV）信号检测分析师。你会收到一份基于FAERS数据库的PRR统计分析结果，" +
+    "请用专业但易懂的中文，写一段简洁的解读，内容包括：\n" +
+    "1. 哪个（些）信号最值得关注，为什么（结合PRR大小、置信区间稳定性、卡方值）\n" +
+    "2. 对置信区间过宽、可能是统计假象的信号，明确提醒不能轻信\n" +
+    "3. 如果某个不良反应从临床机制上有已知的合理解释，可以简要提及\n" +
+    "4. 结尾提醒：这只是初步统计信号，不代表因果关系确认\n" +
+    "不要重复罗列原始数据表格，只写解读性的分析文字，控制在300字左右。";
+
+  const res = await fetch(AI_PROXY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ systemPrompt, userPrompt }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`AI解读请求失败，状态码：${res.status}`);
+  }
+  const data = await res.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) throw new Error("AI返回格式异常");
+  return content.trim();
+}
+
+const statusEl = document.getElementById("status");
+const errorEl = document.getElementById("error");
+const resultsEl = document.getElementById("results");
+const submitBtn = document.getElementById("submitBtn");
+
+document.getElementById("searchForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  errorEl.style.display = "none";
+  resultsEl.style.display = "none";
+  submitBtn.disabled = true;
+
+  let drugName = document.getElementById("drugName").value.trim();
+  const startYear = document.getElementById("startYear").value.trim();
+  const minAge = document.getElementById("minAge").value.trim();
+  let comedKeyword = document.getElementById("comedKeyword").value.trim();
+  let comedDrugName = document.getElementById("comedDrugName").value.trim();
+  const startDate = startYear ? `${startYear}0101` : null;
+
+  document.getElementById("aiContent").innerHTML = '<div class="ai-loading">等待统计结果...</div>';
+
+  const translationNotes = [];
+
+  try {
+    // FAERS只存英文数据，中文输入会直接查不到结果，所以先自动翻译成英文
+    if (containsChinese(drugName)) {
+      statusEl.textContent = `检测到中文药品名"${drugName}"，正在自动翻译成英文...`;
+      const translated = await translateToEnglishTerm(drugName, "drug");
+      translationNotes.push(`药品名："${drugName}" → "${translated}"`);
+      drugName = translated;
+    }
+    if (containsChinese(comedKeyword)) {
+      statusEl.textContent = `检测到中文适应症"${comedKeyword}"，正在自动翻译成英文...`;
+      const translated = await translateToEnglishTerm(comedKeyword, "indication");
+      translationNotes.push(`合并用药适应症："${comedKeyword}" → "${translated}"`);
+      comedKeyword = translated;
+    }
+    if (containsChinese(comedDrugName)) {
+      statusEl.textContent = `检测到中文药品名"${comedDrugName}"，正在自动翻译成英文...`;
+      const translated = await translateToEnglishTerm(comedDrugName, "drug");
+      translationNotes.push(`合并用药药品名："${comedDrugName}" → "${translated}"`);
+      comedDrugName = translated;
+    }
+
+    statusEl.textContent = "正在从FAERS数据库拉取报告...";
+    const query = buildQuery({ drugName, startDate, minAge, comedKeyword, comedDrugName });
+    const reports = await fetchReports(query);
+
+    if (!reports.length) {
+      statusEl.textContent = "";
+      errorEl.textContent = "未获取到有效数据，请检查药品名拼写，或尝试放宽筛选条件。";
+      errorEl.style.display = "block";
+      submitBtn.disabled = false;
+      return;
+    }
+
+    const analysis = analyzeReports(reports);
+    const excludedTerms = [];
+    const candidateReactions = analysis.top10.filter(([term]) => {
+      if (isInvestigationTerm(term)) { excludedTerms.push(term); return false; }
+      return true;
+    });
+
+    if (!candidateReactions.length) {
+      statusEl.textContent = "";
+      errorEl.textContent = "排除检查检验类术语后，没有剩余可分析的不良反应类型，请放宽筛选条件。";
+      errorEl.style.display = "block";
+      submitBtn.disabled = false;
+      return;
+    }
+
+    statusEl.textContent = `正在对 ${candidateReactions.length} 项不良反应逐一计算PRR信号值...\n（每项需要额外查询，请稍候）`;
+
+    const nDrug = await getReportCount(buildQuery({ drugName, startDate, minAge, comedKeyword, comedDrugName }));
+    const nTotal = await getReportCount(buildQuery({ startDate, minAge, comedKeyword, comedDrugName }));
+
+    const prrResults = [];
+    for (const [term] of candidateReactions) {
+      const a = await getReportCount(buildQuery({ drugName, reaction: term, startDate, minAge, comedKeyword, comedDrugName }));
+      const nReactionTotal = await getReportCount(buildQuery({ reaction: term, startDate, minAge, comedKeyword, comedDrugName }));
+      const result = calculatePRR(a, nDrug, nReactionTotal, nTotal);
+      if (result) { result.term = term; prrResults.push(result); }
+    }
+
+    prrResults.sort((a, b) => b.prr - a.prr);
+    renderResults({ drugName, startYear, minAge, comedKeyword, comedDrugName, nDrug, nTotal, analysis, prrResults, excludedTerms, translationNotes });
+
+    statusEl.textContent = "";
+    resultsEl.style.display = "block";
+
+    // 统计结果渲染完后，异步请求AI解读（不阻塞表格的展示）
+    document.getElementById("aiContent").innerHTML = '<div class="ai-loading">DeepSeek 正在分析结果，请稍候...</div>';
+    try {
+      const prompt = buildAIPrompt({ drugName, startYear, minAge, comedKeyword, comedDrugName, prrResults, excludedTerms });
+      const aiText = await callAIAnalysis(prompt);
+      document.getElementById("aiContent").innerHTML = `<div class="ai-text"></div>`;
+      document.querySelector(".ai-text").textContent = aiText;
+    } catch (aiErr) {
+      document.getElementById("aiContent").innerHTML =
+        `<div class="ai-error">AI解读暂时不可用：${aiErr.message}（统计结果不受影响，可稍后重试）</div>`;
+    }
+  } catch (err) {
+    statusEl.textContent = "";
+    errorEl.textContent = "查询出错：" + err.message + "（可能是请求频率超限，请稍后重试）";
+    errorEl.style.display = "block";
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+function renderResults({ drugName, startYear, minAge, comedKeyword, comedDrugName, nDrug, nTotal, analysis, prrResults, excludedTerms, translationNotes }) {
+  const signals = prrResults.filter(r => r.isSignal);
+  const heroBox = document.getElementById("heroBox");
+  const heroLabel = document.getElementById("heroLabel");
+  const heroStat = document.getElementById("heroStat");
+  const heroSupport = document.getElementById("heroSupport");
+
+  if (signals.length > 0) {
+    heroBox.className = "hero";
+    heroLabel.textContent = `识别出 ${signals.length} 个满足统计判定标准的潜在信号`;
+    const top = signals[0];
+    heroStat.innerHTML = `<div class="prr-number">${top.prr}</div><div class="prr-what"><strong>${top.term}</strong> 的 PRR 值，是背景人群报告水平的 ${top.prr} 倍</div>`;
+    heroSupport.textContent = `病例数 a = ${top.a} · 95% CI ${top.ciLower}–${top.ciUpper} · 卡方值 = ${top.chiSquare}`;
+  } else {
+    heroBox.className = "hero none";
+    heroLabel.textContent = "本次分析结果";
+    heroStat.innerHTML = `<div class="prr-number">未发现满足全部判定标准的潜在信号</div>`;
+    heroSupport.textContent = "可尝试放宽筛选条件、扩大样本量后重新分析";
+  }
+
+  document.getElementById("filtersBox").innerHTML = `
+    <div><span>药品名称</span><span>${drugName}</span></div>
+    <div><span>目标药物报告数</span><span>${nDrug} 份</span></div>
+    <div><span>起始日期</span><span>${startYear ? startYear + '-01-01 起' : '不限'}</span></div>
+    <div><span>背景数据库报告数</span><span>${nTotal.toLocaleString()} 份</span></div>
+    <div><span>最小年龄</span><span>${minAge ? '≥ ' + minAge + ' 岁' : '不限'}</span></div>
+    <div><span>合并用药 - 适应症</span><span>${comedKeyword || '不限'}</span></div>
+    <div><span>合并用药 - 药品名</span><span>${comedDrugName || '不限'}</span></div>
+  `;
+
+  const filtersSection = document.getElementById("filtersBox").parentElement;
+  let translateNote = document.getElementById("translateNote");
+  if (translationNotes && translationNotes.length) {
+    if (!translateNote) {
+      translateNote = document.createElement("div");
+      translateNote.id = "translateNote";
+      translateNote.className = "excluded-note";
+      filtersSection.appendChild(translateNote);
+    }
+    translateNote.style.display = "block";
+    translateNote.innerHTML = `<strong>已自动翻译（AI生成，仅供参考）：</strong>${translationNotes.join("；")}`;
+  } else if (translateNote) {
+    translateNote.style.display = "none";
+  }
+
+  const tbody = document.getElementById("prrTableBody");
+  tbody.innerHTML = prrResults.map(r => `
+    <tr class="${r.isSignal ? 'signal' : ''}">
+      <td>${r.term}</td>
+      <td>${r.a}</td>
+      <td>${r.prr}</td>
+      <td>${r.ciLower !== null ? r.ciLower + '–' + r.ciUpper : '无法计算'}</td>
+      <td>${r.chiSquare}</td>
+      <td class="${r.isSignal ? 'flag-yes' : 'flag-no'}">${r.isSignal ? '⚠ 是' : '否'}</td>
+    </tr>
+  `).join("");
+
+  const excludedNote = document.getElementById("excludedNote");
+  if (excludedTerms.length) {
+    excludedNote.style.display = "block";
+    excludedNote.innerHTML = `<strong>已剔除的检验类术语：</strong>${excludedTerms.join(", ")}。这类术语的背景发生率天然被低估，会导致PRR被系统性推高，不能与真实临床不良反应信号直接比较。`;
+  } else {
+    excludedNote.style.display = "none";
+  }
+}
+</script>
+</body>
+</html>
